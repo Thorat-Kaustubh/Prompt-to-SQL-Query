@@ -1,0 +1,37 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.env
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+.vscode/
+.idea/
+*.db
+*.sqlite3
+
+# Test scripts
+tests/
+test_*.py
+
+# Model data
+models_list.txt
+
+# --- PRODUCTION HARDENING EXCLUSIONS ---
+# Logs and Debug
+*.log
+*.txt
+*.json
+test_*.txt
+debug_*.py
+scratch_*.py
+implementation.md
