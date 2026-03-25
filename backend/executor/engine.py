@@ -1,6 +1,6 @@
 import os
 import time
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
 from supabase import create_client, Client
 from loguru import logger
 
@@ -55,20 +55,33 @@ class QueryExecutor:
              }
                   
         except Exception as e:
+             execution_ms = (time.time() - start_time) * 1000
              logger.error(f"Executor Module: BLOCKED or FAILED: {str(e)}")
-             # Standardizing error for the LLM "Self-Correction" phase (Phase 11)
-             raise Exception(f"Database Security Violation or Syntax Error: {str(e)}")
+             return {
+                 "data": [],
+                 "execution_ms": execution_ms,
+                 "error": str(e)
+             }
 
-    def get_schema_context_raw(self) -> str:
+    def get_schema_context_raw(self, table_whitelist: Optional[Set[str]] = None) -> str:
         """
-        Retrieves schema info. In production, this can be cached from Information Schema.
+        Retrieves schema info for the LLM. 
+        In production, this would be dynamically fetched from Information Schema and cached.
+        Filters schema based on the provided RBAC whitelist.
         """
-        return """
-        Table: Users (id, name, email, role, created_at)
-        Table: Products (name, price, stock, category_id)
-        Table: Categories (name)
-        (RLS ENFORCED: Policies based on auth.uid())
-        """
+        full_schema = {
+            "users": "id (uuid), email (text), role (text), created_at (timestamptz)",
+            "products": "id (uuid), name (text), price (numeric), stock (int), category_id (uuid)",
+            "categories": "id (uuid), name (text)"
+        }
+        
+        context_parts = ["### DATABASE SCHEMA (PostgreSQL)"]
+        for table, cols in full_schema.items():
+            if table_whitelist is None or table in table_whitelist:
+                context_parts.append(f"- Table: {table}\n  Columns: {cols}")
+        
+        context_parts.append("\n(NOTE: Row Level Security (RLS) is active. Filtered by auth.uid().)")
+        return "\n".join(context_parts)
 
 if __name__ == "__main__":
     pass

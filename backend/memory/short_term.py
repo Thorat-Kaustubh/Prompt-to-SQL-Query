@@ -23,8 +23,8 @@ class ShortTermMemory:
                 # Test connection
                 self.redis_client.ping()
                 logger.info("Connected to Redis for Short-Term Memory.")
-            except Exception as e:
-                logger.warning(f"Failed to connect to Redis: {e}. Falling back to in-memory cache.")
+            except Exception:
+                logger.info("Short-Term Memory: Redis not found. Using [In-Memory] session cache.")
                 self.redis_client = None
 
     def add_interaction(self, user_id: str, interaction: Dict[str, Any]):

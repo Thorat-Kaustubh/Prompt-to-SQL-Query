@@ -31,7 +31,23 @@ models_list.txt
 *.log
 *.txt
 *.json
+*.bin
 test_*.txt
 debug_*.py
 scratch_*.py
 implementation.md
+
+# --- WEB FRONTEND (Vite / React) ---
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/coverage/
+frontend/*.log
+frontend/src/vite-env.d.ts
+frontend/tsconfig.tsbuildinfo
+frontend/.DS_Store
+frontend/.env
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local

@@ -1,14 +1,13 @@
+import os
+from dotenv import load_dotenv
+load_dotenv() # Crucial: Load env vars BEFORE other imports to avoid module-level config failure
+
 from fastapi import FastAPI, Depends, HTTPException, status, Header
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from orchestrator.engine import QueryOrchestrator
 import uvicorn
-import os
-from dotenv import load_dotenv
 from loguru import logger
-
-# 1. Environment & Database Initialization (Security Architect Standards)
-load_dotenv()
 
 app = FastAPI(title="Text-to-SQL AI System (Supabase Enforced)")
 

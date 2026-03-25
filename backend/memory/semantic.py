@@ -11,7 +11,7 @@ class SemanticMemory:
     """
     NATIVE Semantic Memory Engine (Layer 3 - High Availability).
     Uses the modern Google GenAI SDK (google-genai) for future-proof stability.
-    Fallback: gemini-embedding-2-preview -> text-embedding-004
+    Fallback: gemini-embedding-2-preview -> gemini-embedding-001
     """
     def __init__(self, collection_name: Optional[str] = None):
         host = os.getenv("CHROMA_HOST")
@@ -29,28 +29,24 @@ class SemanticMemory:
             logger.warning("Semantic Memory: GEMINI_API_KEY missing. Embeddings will fail.")
 
         if not host or not api_key:
-            logger.warning("ChromaDB credentials missing. Attempting persistent local storage.")
+            logger.info("ChromaDB: No remote credentials. Using local storage mode.")
             try:
-                # Use a home-directory path for better cross-platform permission stability
                 persist_path = os.path.join(os.path.expanduser("~"), ".chroma_data")
                 os.makedirs(persist_path, exist_ok=True)
                 self.client = chromadb.PersistentClient(path=persist_path)
-                logger.info(f"Connected to local persistent ChromaDB at {persist_path}.")
             except Exception as e:
-                logger.error(f"Local persistence failed ({e}). Using In-Memory ephemeral storage.")
+                logger.info(f"Local ChromaDB access limited ({e}). Falling back to ephemeral memory.")
                 self.client = chromadb.Client()
         else:
             try:
-                # HttpClient setup for hosted Chroma
                 self.client = chromadb.HttpClient(
                     host=host,
                     headers={"Authorization": f"Bearer {api_key}"},
                     tenant=tenant,
                     database=db
                 )
-                logger.info(f"Connected to ChromaDB (host: {host}).")
             except Exception as e:
-                logger.error(f"Failed to connect to primary ChromaDB: {e}. Falling back to In-Memory.")
+                logger.info(f"ChromaDB connection failed ({e}). Falling back to In-Memory.")
                 self.client = chromadb.Client()
 
         try:
@@ -59,61 +55,55 @@ class SemanticMemory:
             logger.error(f"Error initializing ChromaDB collection: {e}")
             self.collection = None
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10)
-    )
-    def _generate_embedding(self, text: str) -> List[float]:
-        """
-        New SDK Embedding Generation with Dual-Tier Fallback.
-        """
-        if not self.genai_client:
-            return []
+    def _get_embedding_values(self, response: Any) -> List[float]:
+        """Robustly extracts embedding values from different SDK versions."""
+        # Check singular 'embedding' property (SDK v1 common)
+        if hasattr(response, 'embedding') and response.embedding:
+            return response.embedding.values
+        # Check plural 'embeddings' list (SDK v1 batches or older previews)
+        if hasattr(response, 'embeddings') and len(response.embeddings) > 0:
+            return response.embeddings[0].values
+        return []
 
-        primary_model = os.getenv("EMBEDDING_MODEL", "text-embedding-004")
-        backup_model = "text-embedding-004"
+    def _generate_embedding(self, text: str) -> List[float]:
+        if not self.genai_client: return []
+
+        primary_model = os.getenv("EMBEDDING_MODEL", "models/gemini-embedding-2-preview")
+        backup_model = "models/gemini-embedding-001" # Verified name in models_list.txt
         
-        # New SDK model names don't necessarily need 'models/' prefix but support it
         p_model = primary_model.replace("gemini/", "").replace("models/", "")
-        
+        if not p_model.startswith("models/"): p_model = f"models/{p_model}"
+
         try:
-            logger.info(f"Memory: Generating embedding with {p_model}")
-            # New SDK format: client.models.embed
-            response = self.genai_client.models.embed(
+            response = self.genai_client.models.embed_content(
                 model=p_model,
                 contents=text,
                 config={"task_type": "RETRIEVAL_DOCUMENT"}
             )
-            # Response structure is list-based in new SDK
-            return response.embeddings[0].values
+            return self._get_embedding_values(response)
         except Exception as e:
-            logger.warning(f"Memory: Primary Embedding Failed ({e}). Falling back.")
+            logger.warning(f"Memory: Primary Embedding Failed ({e}). Trying backup {backup_model}...")
             try:
-                response = self.genai_client.models.embed(
+                response = self.genai_client.models.embed_content(
                     model=backup_model,
                     contents=text,
                     config={"task_type": "RETRIEVAL_DOCUMENT"}
                 )
-                return response.embeddings[0].values
+                return self._get_embedding_values(response)
             except Exception as backup_e:
-                logger.error(f"Memory: Critical Embedding Failure: {backup_e}")
+                logger.error(f"Memory: Critical Embedding Failure - {backup_e}")
                 return []
 
     def store_interaction(self, user_id: str, query: str, response: str):
         if not self.collection: return
-        if len(query.strip()) < 5: return
-
-        text = f"Query: {query}\nResponse: {response}"
-        vector = self._generate_embedding(text)
-        
+        vector = self._generate_embedding(f"Q: {query}\nA: {response}")
         if not vector: return
-
         try:
             self.collection.add(
                 ids=[str(uuid.uuid4())],
                 embeddings=[vector],
                 metadatas=[{"user_id": user_id, "query": query, "response": response}],
-                documents=[text]
+                documents=[f"{query} {response}"]
             )
         except Exception as e:
             logger.error(f"Error adding to semantic memory: {e}")
