@@ -3,7 +3,7 @@ import asyncio
 import time
 import json
 import re
-from typing import Optional, Dict, Any, List, Type, Callable
+from typing import Optional, Dict, Any, List, Type, Callable, AsyncGenerator
 from loguru import logger
 import litellm
 
@@ -30,41 +30,34 @@ class ExecutionController:
             }
         return self._semaphores_instance
         
-    async def _call_llm(self, prompt: str, model: str, priority: str = "medium", metadata: Dict[str, Any] = None) -> str:
+    async def _call_llm(self, messages: List[Dict[str, str]], model: str) -> str:
         provider = "gemini" if "gemini" in model.lower() else "groq"
-        if time.time() < self._circuit_breakers[provider]:
-            raise Exception(f"Circuit Breaker active for {provider}")
-        if priority == "low": await asyncio.sleep(0.5)
-
         async with self._semaphores.get(provider, self._semaphores["gemini"]):
-            for attempt in range(4):
-                start_time = time.time()
+            for attempt in range(3):
                 try:
-                    response = await _original_acompletion(model=model, messages=[{"role": "user", "content": prompt}], temperature=0.1)
-                    self._failure_counts[provider] = 0
-                    return response.choices[0].message.content
+                    res = await _original_acompletion(model=model, messages=messages, temperature=0.7)
+                    return res.choices[0].message.content
                 except Exception as e:
-                    err_str = str(e).lower()
-                    if ("429" in err_str or "rate" in err_str) and attempt < 3:
-                        await asyncio.sleep(2 * (attempt + 1))
-                        continue
-                    self._failure_counts[provider] += 1
-                    if self._failure_counts[provider] >= 3: self._circuit_breakers[provider] = time.time() + 60
-                    raise e
+                    if attempt == 2: raise e
+                    await asyncio.sleep(1)
+        return ""
 
-    async def execute_task(self, prompt: str, preferred_model: Optional[str] = None, priority: str = "medium") -> Dict[str, Any]:
-        start_idx = 0
-        if preferred_model:
-            try: start_idx = MODEL_FALLBACK_CHAIN.index(preferred_model)
-            except ValueError: pass
-        for i in range(start_idx, len(MODEL_FALLBACK_CHAIN)):
-            current_model = MODEL_FALLBACK_CHAIN[i]
-            try:
-                result = await self._call_llm(prompt, current_model, priority)
-                return {"content": result, "model": current_model, "error": None}
-            except Exception as e:
-                logger.error(f"Execution Controller: ⚠️ {current_model} failed: {str(e)}")
-        return {"content": "", "error": "No models available."}
+    async def _call_llm_stream(self, messages: List[Dict[str, str]], model: str) -> AsyncGenerator[str, None]:
+        provider = "gemini" if "gemini" in model.lower() else "groq"
+        async with self._semaphores.get(provider, self._semaphores["gemini"]):
+            response = await _original_acompletion(model=model, messages=messages, temperature=0.7, stream=True)
+            async for chunk in response:
+                content = getattr(chunk.choices[0].delta, 'content', "") or ""
+                yield content
+
+    async def execute_task(self, messages: List[Dict[str, str]], preferred_model: Optional[str] = None) -> Dict[str, Any]:
+        model = preferred_model or MODEL_FALLBACK_CHAIN[0]
+        try:
+            content = await self._call_llm(messages, model)
+            return {"content": content, "model": model, "error": None}
+        except Exception as e:
+            logger.error(f"Task Failed: {e}")
+            return {"content": "", "error": str(e), "model": model}
 
 _controller: Optional[ExecutionController] = None
 def get_controller() -> ExecutionController:
@@ -73,45 +66,20 @@ def get_controller() -> ExecutionController:
     return _controller
 
 _original_acompletion = litellm.acompletion
-_original_completion = litellm.completion
-
-async def intercepted_acompletion(*args, **kwargs):
-    model = kwargs.get("model", "")
-    messages = kwargs.get("messages", [])
-    prompt = messages[-1]["content"] if messages else ""
-    res = await get_controller().execute_task(prompt, preferred_model=model)
-    if res.get("error"): return await _original_acompletion(*args, **kwargs)
-    class InterceptedResponse:
-        def __init__(self, content, model_name):
-            self.choices = [type('Choice', (), {'message': type('Message', (), {'content': content, 'role': 'assistant', 'tool_calls': None})})]
-            self.model = model_name
-            self.usage = type('Usage', (), {'prompt_tokens': 0, 'completion_tokens': 0, 'total_tokens': 0})
-    return InterceptedResponse(res["content"], res["model"])
-
-litellm.acompletion = intercepted_acompletion
 
 # --- AUDITED & IMPROVED COMPONENTS ---
 
 class Guardrail:
-    """
-    SECURITY LAYER: Prompt Injection & Query Sanitization.
-    """
     @staticmethod
     def sanitize(query: str) -> str:
-        # Detect attempt to break out of delimiters or bypass instructions
         forbidden = ["ignore previous instructions", "system prompt", "delete all", "drop database"]
         clean_query = query.strip()
         for pattern in forbidden:
             if pattern in clean_query.lower():
-                logger.warning(f"Guardrail: Potential injection attempt blocked: {pattern}")
                 raise ValueError(f"Security Policy Violation: Query contains forbidden logic.")
         return clean_query
 
 class FewShotLibrary:
-    """
-    SYNCHRONIZED EXAMPLES: Aligned with executor/engine.py schema.
-    Schema: Users (id, name, email, role, created_at), Products (name, price, stock, category_id), Categories (name)
-    """
     EXAMPLES = {
         "Aggregation": [
             {"q": "How many users joined since 2024?", "sql": "SELECT COUNT(*) FROM users WHERE created_at >= '2024-01-01';"},
@@ -120,13 +88,6 @@ class FewShotLibrary:
         "Join": [
             {"q": "List products with their category names", "sql": "SELECT p.name, c.name as category FROM products p JOIN categories c ON p.category_id = c.id;"},
             {"q": "Total stock per category", "sql": "SELECT c.name, SUM(p.stock) FROM categories c JOIN products p ON c.id = p.category_id GROUP BY 1;"}
-        ],
-        "Filter": [
-            {"q": "Admins with email containing 'google'", "sql": "SELECT name, email FROM users WHERE role = 'admin' AND email LIKE '%google%';"},
-            {"q": "Categories with no products", "sql": "SELECT c.name FROM categories c LEFT JOIN products p ON c.id = p.category_id WHERE p.id IS NULL;"}
-        ],
-        "Complex": [
-            {"q": "Highly active categories (average stock > 100)", "sql": "SELECT c.name FROM categories c JOIN products p ON c.id = p.category_id GROUP BY 1 HAVING AVG(p.stock) > 100;"}
         ]
     }
 
@@ -139,149 +100,109 @@ class QueryClassifier:
     def __init__(self, controller: ExecutionController):
         self.controller = controller
 
-    async def classify(self, query: str) -> str:
-        prompt = f"Classify query type for Text-to-SQL intent: [Aggregation, Join, Filter, Sorting, Complex]. Query: \"{query}\". Return ONE word only."
-        res = await self.controller.execute_task(prompt, preferred_model=os.getenv("GEMINI_LITE"))
-        category = res["content"].strip().title()
-        return category if category in ["Aggregation", "Join", "Filter", "Sorting", "Complex"] else "Complex"
+    async def classify(self, query: str) -> Dict[str, str]:
+        prompt = f"Analyze: \"{query}\"\nReturn JSON: {{\"intent\": \"GENERAL/DATA/HYBRID\", \"complexity\": \"LOW/HIGH\"}}"
+        res = await self.controller.execute_task([{"role": "user", "content": prompt}], preferred_model=os.getenv("GEMINI_LITE"))
+        try:
+            match = re.search(r'\{.*\}', res["content"], re.DOTALL)
+            data = json.loads(match.group(0)) if match else {"intent": "GENERAL", "complexity": "LOW"}
+            return {"intent": data.get("intent", "GENERAL").upper(), "complexity": data.get("complexity", "LOW").upper()}
+        except:
+            return {"intent": "GENERAL", "complexity": "LOW"}
 
-class PromptBuilder:
+class AssistantPromptBuilder:
     def __init__(self, dialect: str = "PostgreSQL"):
         self.dialect = dialect
-        self.rules = [
-            f"Output valid {self.dialect} only.",
-            "LIMIT results to 50 unless specified.",
-            "Never use SELECT *. List columns explicitly.",
-            "Use clear table aliases.",
-            "READ-ONLY: Block all DDL/DML (DELETE, DROP, TRUNCATE, UPDATE)."
+
+    def build(self, query: str, schema: str, history: str, intent: str, error_context: Optional[Dict[str, Any]] = None) -> List[Dict[str, str]]:
+        system = f"""You are a Premium AI Senior Data Partner and Expert Analyst.
+Your tone is professional, understanding, and deeply analytical.
+Analyze the user's request with empathy and context. Explain 'why' certain data points matter. 
+
+CONSTRAINTS:
+- Use professional, encouraging language.
+- Explain your findings in a narrative way before providing tech details.
+- ALWAYS return valid JSON at the end.
+
+Output Structure:
+{{
+  "type": "summary|data|analysis|hybrid",
+  "title": "A professional title for this insight",
+  "explanation": "Markdown description with professional tone",
+  "sql": "SQL code here",
+  "sections": [{{"title": "Section Title", "content": "Detailed professional analysis"}}],
+  "insights": ["Pro Insight 1", "Pro Insight 2"],
+  "meta": {{"complexity": "..."}}
+}}
+
+SCHEMA: {schema}
+HISTORY: {history}
+INTENT: {intent}
+{f"CRITICAL: Fix previous error: {error_context}" if error_context else ""}"""
+
+        return [
+            {"role": "system", "content": system},
+            {"role": "user", "content": query}
         ]
 
-    def build(self, query: str, schema: str, history: str, category: str, error_context: Optional[Dict[str, Any]] = None, semantic_context: Optional[str] = None, attempt_info: Optional[Dict[str, int]] = None) -> str:
-        # Context Management: Limit history to last 2000 chars
-        truncated_history = history[-2000:] if history else "No history."
-        
-        # 1. Semantic Intelligence Injection
-        semantic_block = ""
-        if semantic_context:
-            semantic_block = f"\n{semantic_context}\n"
-        
-        examples = FewShotLibrary.get_examples(category)
-        
-        # 5. UNIFIED SELF-HEALING BLOCK (Audit Improved)
-        error_block = ""
-        if error_context:
-            # Error Categorization Refinement
-            err_msg = error_context.get("error", "").lower()
-            if "unauthorized" in err_msg or "permission" in err_msg:
-                err_type = "SECURITY_VIOLATION"
-            elif "column" in err_msg:
-                err_type = "MISSING_COLUMN"
-            elif "table" in err_msg or "relation" in err_msg:
-                err_type = "INVALID_TABLE_REFERENCE"
-            elif "syntax" in err_msg:
-                err_type = "SYNTAX_ERROR"
-            else:
-                err_type = "GENERIC_DATABASE_ERROR"
-
-            failed_sql = error_context.get("sql", "Unknown SQL")
-            attempt_str = ""
-            if attempt_info:
-                attempt_str = f" (Attempt {attempt_info['current']} of {attempt_info['max']})"
-
-            error_block = f"""
-### ⚠️ SELF-HEALING CONTEXT{attempt_str}
-Detected Error Type: {err_type}
-- **FAILED SQL:** `{failed_sql}`
-- **ERROR MESSAGE:** `{error_context.get('error')}`
-
-**RECOVERY INSTRUCTIONS:**
-1. Focus specifically on fixing the `{err_type}`.
-2. If it is a MISSING_COLUMN, verify if you should be using a different column from the schema or if a JOIN is required to reach the correct table.
-3. If it is an INVALID_TABLE_REFERENCE, ensure you are using exactly the table names provided in the 'Database Schema'.
-4. Ensure the corrected SQL is syntactically valid and efficient.
-"""
-
-        return f"""
-        ### Task: Convert to {self.dialect} SQL.
-        ### Format: JSON object with keys: "sql", "explanation", "complexity", "visualization".
-
-        ### Database Schema:
-        {schema}
-
-        {semantic_block}
-        ### Recent History:
-        {truncated_history}
-
-        ### Few-Shot Examples ({category}):
-        {examples}
-
-        ### Precision Guardrails:
-        {" ".join([f"{i+1}. {r}" for i, r in enumerate(self.rules)])}
-        {error_block}
-
-        ### User Input:
-        {query}
-
-        ### Final Output (JSON):
-        """
-
 class LLMEngine:
-    def __init__(self, dialect: str = "PostgreSQL"):
+    def __init__(self):
         self.controller = get_controller()
         self.classifier = QueryClassifier(self.controller)
-        self.builder = PromptBuilder(dialect=dialect)
+        self.builder = AssistantPromptBuilder()
 
-    async def generate_sql(self, user_query: str, schema_context: str, history_context: str, error_context: Optional[Dict[str, Any]] = None, semantic_context: Optional[str] = None, attempt_info: Optional[Dict[str, int]] = None) -> Dict[str, Any]:
-        """
-        AI SQL GENERATOR (Stateless).
-        Produces a single generation attempt based on the provides context and optional error feedback.
-        """
-        # 1. Sanitization
+    async def generate_response(self, user_query: str, schema_context: str, history_context: str, error_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         try:
             clean_query = Guardrail.sanitize(user_query)
         except ValueError as e:
-            return {"sql": "", "error": str(e), "status": "Blocked"}
-        # 2. Classification
-        category = await self.classifier.classify(clean_query)
+            return {"intent": "GENERAL", "explanation": str(e), "sql": None, "error": str(e)}
 
-        # 3. Generation
-        prompt = self.builder.build(
-            clean_query, 
-            schema_context, 
-            history_context, 
-            category, 
-            error_context=error_context,
-            semantic_context=semantic_context,
-            attempt_info=attempt_info
-        )
+        classification = await self.classifier.classify(clean_query)
+        intent = classification["intent"]
+        complexity = classification["complexity"]
         
-        logger.info(f"LLM Engine: Generating SQL for query type '{category}'...")
-        res = await self.controller.execute_task(prompt, preferred_model=os.getenv("GEMINI_FLASH"))
+        messages = self.builder.build(clean_query, schema_context, history_context, intent, error_context=error_context)
+        
+        logger.info(f"LLM Engine: Handling intent '{intent}' (Complexity: {complexity})...")
+        res = await self.controller.execute_task(messages, preferred_model=os.getenv("GEMINI_FLASH"))
         
         if res.get("error"):
-            logger.error(f"LLM Engine: Generation failed: {res['error']}")
-            return {"sql": "", "error": res["error"], "status": "Failed"}
+            return {"intent": intent, "complexity": complexity, "explanation": "System error.", "sql": None, "error": res["error"]}
 
-        # 4. Parsing & Cleansing
-        parsed_result = self._cleanse_sql(res["content"])
-        
+        parsed_result = self._parse_json(res["content"])
         return {
+            "intent": intent,
+            "complexity": complexity,
             **parsed_result,
-            "category": category,
-            "status": "Generated",
             "model": res.get("model")
         }
 
-    def _cleanse_sql(self, raw_response: str) -> Dict[str, Any]:
+    async def generate_stream(self, user_query: str, schema_context: str, history_context: str) -> AsyncGenerator[str, None]:
         """
-        Extracts JSON block from LLM output.
+        New streaming method for real-time interaction.
         """
-        try:
-             match = re.search(r'\{.*\}', raw_response, re.DOTALL)
-             if match: return json.loads(match.group(0))
-        except: pass
+        classification = await self.classifier.classify(user_query)
+        intent = classification["intent"]
+        messages = self.builder.build(user_query, schema_context, history_context, intent)
         
-        # Fallback to direct SQL extraction if JSON parsing fails
-        sql_match = re.search(r'```sql\s*(.*?)\s*```', raw_response, re.DOTALL | re.IGNORECASE)
-        extracted_sql = sql_match.group(1).strip() if sql_match else raw_response.strip()
-        return {"sql": extracted_sql, "explanation": "Partial parse.", "complexity": "Medium", "visualization": "Table"}
+        model = os.getenv("GEMINI_FLASH")
+        async for chunk in self.controller._call_llm_stream(messages, model):
+            yield chunk
+
+    def _parse_json(self, raw_response: str) -> Dict[str, Any]:
+        try:
+            match = re.search(r'\{.*\}', raw_response, re.DOTALL)
+            if match:
+                data = json.loads(match.group(0))
+                return {
+                    "type": data.get("type", "summary"),
+                    "title": data.get("title", data.get("heading")),
+                    "explanation": data.get("explanation", data.get("content", "")),
+                    "sections": data.get("sections", []),
+                    "sql": data.get("sql"),
+                    "insights": data.get("insights", []),
+                    "examples": data.get("examples", [])
+                }
+        except Exception:
+             pass
+        return {"explanation": raw_response}

@@ -139,7 +139,11 @@ class VisualizationEngine:
 
     def _detect_pattern(self, data: List[Dict[str, Any]], columns: List[str]) -> str:
         """
-        Critical Fixes: KPI Groups and Axis Validation.
+        Refined Intelligence: Heuristic-based visualization selection.
+        - Area: Long time-series (>10 points) showing growth.
+        - Line: Short time-series (<10 points) showing trends.
+        - Pie: Small categorical distributions (2-6 items).
+        - Bar: Larger categorical comparisons.
         """
         num_rows = len(data)
         numeric_cols = [col for col in columns if isinstance(data[0].get(col), (int, float))]
@@ -152,20 +156,25 @@ class VisualizationEngine:
             if len(numeric_cols) > 1: return "kpi_group"
             return "table"
 
-        # 2. Time Series
-        if date_cols and len(data) > 1 and numeric_cols:
+        # 2. Time Series Analysis
+        if date_cols and numeric_cols:
+            if num_rows >= 12: # At least a full cycle (e.g. Month)
+                return "area"
             return "line"
 
-        # 3. Categorical / Distribution
+        # 3. Categorical / Distribution Analysis
         if categorical_cols and numeric_cols:
+            # If we have only one category and one metric
             if len(categorical_cols) == 1 and len(numeric_cols) == 1:
-                # Use pie for very small distributions
-                if 2 <= num_rows <= 8: return "pie"
+                # Small distributions are better as Pie
+                if 2 <= num_rows <= 6:
+                    return "pie"
                 return "bar"
+            
+            # Multiple metrics for same categories
             return "grouped_bar"
 
         # 4. Fallback: Security Check
-        # If no categorical labels exist, don't force a Bar Chart with numeric X-Axis
         return "table"
 
     def _is_date_column(self, col_name: str, value: Any) -> bool:

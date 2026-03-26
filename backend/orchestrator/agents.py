@@ -1,5 +1,6 @@
-from crewai import Agent, Task
-from orchestrator.tools import VerifyIdentityTool, SQLGeneratorTool, SQLValidatorTool, DBExecutorTool
+from crewai import Agent, Task, Crew, Process
+import re
+import json
 
 # --- Agent Definitions ---
 
@@ -8,7 +9,6 @@ def create_filter_agent(llm=None):
         role="Security Specialist",
         goal="Classify intent and verify auth.",
         backstory="Zero-trust security filter. Fast, concise logic only.",
-        tools=[VerifyIdentityTool()],
         llm=llm,
         allow_delegation=False,
         verbose=False
@@ -73,3 +73,41 @@ def create_refinement_task(agent, sql_draft, jwt_token):
         expected_output="A JSON object containing: 'sql' (the refined query), 'explanation' (step-by-step logic), 'complexity' (Low/Medium/High), 'confidence' (0.0-1.0), and 'suggested_visualization' (Table/Bar Chart/etc.).",
         agent=agent
     )
+
+# --- Execution Entry Point ---
+
+def run_complex_query(user_query: str, schema: str, history: str, jwt_token: str, llm=None):
+    """
+    Executes a multi-agent CrewAI flow for HIGH complexity queries.
+    """
+    # 1. Instantiate Agents
+    f_agent = create_filter_agent(llm)
+    a_agent = create_analyzer_agent(llm)
+    g_agent = create_generator_agent(llm)
+    r_agent = create_refiner_agent(llm)
+
+    # 2. Define Tasks (Chained)
+    t1 = create_filter_task(f_agent, jwt_token, user_query)
+    t2 = create_analysis_task(a_agent, user_query, schema, history)
+    t3 = create_generation_task(g_agent, user_query, schema, history)
+    t4 = create_refinement_task(r_agent, "Look at previous task output", jwt_token)
+
+    # 3. Form the Crew
+    crew = Crew(
+        agents=[f_agent, a_agent, g_agent, r_agent],
+        tasks=[t1, t2, t3, t4],
+        process=Process.sequential,
+        verbose=True
+    )
+
+    # 4. Execute (Kicking off)
+    result = crew.kickoff()
+    
+    # Simple parse of the final agent output
+    try:
+        match = re.search(r'\{.*\}', str(result), re.DOTALL)
+        if match:
+             return json.loads(match.group(0))
+        return {"explanation": str(result), "sql": None}
+    except:
+        return {"explanation": str(result), "sql": None}

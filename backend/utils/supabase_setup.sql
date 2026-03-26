@@ -67,13 +67,10 @@ CREATE TRIGGER on_auth_user_created
 -- 6. SECURE RAW SQL EXECUTION SUPPORT (RPC)
 -- Security Architect Standard: Execute with caller's identity session.
 CREATE OR REPLACE FUNCTION public.execute_sql(sql_query text)
-RETURNS json AS $$
-DECLARE
-    result json;
+RETURNS SETOF json AS $$
 BEGIN
-    EXECUTE sql_query INTO result;
-    RETURN result;
+    RETURN QUERY EXECUTE 'SELECT row_to_json(t) FROM (' || sql_query || ') t';
 EXCEPTION WHEN OTHERS THEN
-    RAISE EXCEPTION 'Database Security Violation or Error: %', SQLERRM;
+    RAISE EXCEPTION 'Database Violation or Error: %', SQLERRM;
 END;
-$$ LANGUAGE plpgsql SECURITY INVOKER; -- SECURITY INVOKER enforces RLS strictly from caller identity
+$$ LANGUAGE plpgsql SECURITY INVOKER;

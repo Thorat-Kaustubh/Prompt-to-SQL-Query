@@ -14,16 +14,21 @@ class QueryExecutor:
     """
     def __init__(self, jwt_token: Optional[str] = None):
         self.url = os.getenv("SUPABASE_URL")
-        self.key = os.getenv("SUPABASE_ANON_KEY")
-        # In a production backend, we initialize a user-specific client for RLS
-        # Or we set the headers dynamically.
-        self.supabase: Client = create_client(self.url, self.key)
-        if jwt_token:
-             # This ensures all Postgrest / RPC calls are made as the USER, enforcing RLS.
-             self.supabase.postgrest.auth(jwt_token)
-             logger.info("Executor Module: User identity attached to database session.")
+        # In local development bypass, we use the service role key to perform actions
+        # that would otherwise be blocked by RLS since we don't have a valid JWT.
+        if jwt_token == "local-dev-token":
+            self.key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+            self.supabase: Client = create_client(self.url, self.key)
+            logger.info("Executor: Developer bypass mode. RLS will be bypassed for testing.")
         else:
-             logger.warning("Executor Module: Running without user context. Queries may be EMPTY due to RLS.")
+            # Fallback to anon key for standard user sessions or anonymous requests
+            self.key = os.getenv("SUPABASE_ANON_KEY")
+            self.supabase: Client = create_client(self.url, self.key)
+            if jwt_token:
+                self.supabase.postgrest.auth(jwt_token)
+                logger.info("Executor: User identity attached to database session.")
+            else:
+                logger.warning("Executor: No user session found. Results may be limited.")
 
     def execute(self, sql: str) -> Dict[str, Any]:
         """
@@ -71,8 +76,8 @@ class QueryExecutor:
         """
         full_schema = {
             "users": "id (uuid), email (text), role (text), created_at (timestamptz)",
-            "products": "id (uuid), name (text), price (numeric), stock (int), category_id (uuid)",
-            "categories": "id (uuid), name (text)"
+            "products": "id (bigint), name (text), price (numeric), stock (int), category_id (bigint)",
+            "categories": "id (bigint), name (text)"
         }
         
         context_parts = ["### DATABASE SCHEMA (PostgreSQL)"]

@@ -39,9 +39,9 @@ class SemanticTranslator:
             # CRITICAL FIX: Synchronize with SQLValidator.ALLOWED_SCHEMA
             self._sync_with_schema()
             self.embedding_enabled = True
-            logger.info("Semantic Layer: Vector store synchronized with Validator Schema.")
+            logger.info("Semantic Search: Ready.")
         except Exception as e:
-            logger.error(f"Semantic Layer: Failed to initialize Vector Store: {str(e)}")
+            logger.error(f"Semantic Search: Error initializing: {str(e)}")
             self.embedding_enabled = False
 
     def _sync_with_schema(self):

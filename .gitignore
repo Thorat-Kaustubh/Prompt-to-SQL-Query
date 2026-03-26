@@ -1,10 +1,25 @@
-__pycache__/
-*.py[cod]
-*$py.class
+# Dependencies
+node_modules/
+frontend/node_modules/
+package-lock.json
+frontend/package-lock.json
 .venv/
 env/
 venv/
 ENV/
+
+# Builds and Assets
+package.json
+*.d.ts
+*.mjs
+*.map
+*.js.map
+*.css.map
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
 env.bak/
 venv.bak/
 .env
@@ -14,40 +29,44 @@ htmlcov/
 dist/
 build/
 *.egg-info/
-.vscode/
 .idea/
+.vscode/
+
+# Database
 *.db
 *.sqlite3
 
-# Test scripts
-tests/
-test_*.py
-
-# Model data
-models_list.txt
-
-# --- PRODUCTION HARDENING EXCLUSIONS ---
 # Logs and Debug
 *.log
-*.txt
-*.json
-*.bin
-test_*.txt
-debug_*.py
-scratch_*.py
-implementation.md
+system_observability.log
+debug_output.log
+test_logs.txt
 
-# --- WEB FRONTEND (Vite / React) ---
-frontend/node_modules/
+# --- NEXT.JS / WEB FRONTEND ---
+frontend/.next/
+frontend/out/
 frontend/dist/
 frontend/dist-ssr/
 frontend/coverage/
 frontend/*.log
-frontend/src/vite-env.d.ts
-frontend/tsconfig.tsbuildinfo
 frontend/.DS_Store
 frontend/.env
 frontend/.env.local
 frontend/.env.development.local
 frontend/.env.test.local
 frontend/.env.production.local
+frontend/next-env.d.ts
+
+# --- PRODUCTION HARDENING EXCLUSIONS ---
+debug_*.py
+scratch_*.py
+implementation.md
+final_report.txt
+models_list.txt
+system_observability.log
+
+# ChromaDB & Binary Stores
+backend/semantic_store/
+*.bin
+*.sqlite3-journal
+*.sqlite3

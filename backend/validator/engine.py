@@ -108,6 +108,14 @@ class SQLValidator:
             for t in set(tables_found.values()):
                 all_allowed_cols.update(self.ALLOWED_SCHEMA.get(t, set()))
             
+            # Extract aliases defined in the SELECT clause to avoid false positives
+            aliases = {
+                item.alias.lower() 
+                for item in expression.find_all(exp.Alias) 
+                if item.alias
+            }
+            all_allowed_cols.update(aliases)
+            
             SAFE_FUNCTIONS = {"count", "sum", "avg", "min", "max", "coalesce", "now", "current_timestamp"}
 
             for column in expression.find_all(exp.Column):
@@ -165,8 +173,8 @@ class SQLValidator:
             return self._fail(f"Internal Security Validation Error: {str(e)}", is_fatal=True)
 
     def _fail(self, message: str, is_fatal: bool = True) -> Dict[str, Any]:
-        level = "FATAL SECURITY" if is_fatal else "HEALABLE ERROR"
-        logger.warning(f"Security Shield: Query Rejected [{level}] - {message}")
+        level = "Security" if is_fatal else "Correction required"
+        logger.warning(f"Validation: {level} - {message}")
         return {"is_valid": False, "query": None, "error": message, "is_fatal": is_fatal}
 
     def validate_output_results(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:

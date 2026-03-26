@@ -17,10 +17,10 @@ class RedisCache:
              self.client = redis.from_url(redis_url)
              self.client.ping()
              self.enabled = True
-             logger.info("Redis Cache: Optimization layer ACTIVE.")
+             logger.info("Cache: Ready.")
         except Exception:
              self.enabled = False
-             logger.info("Redis Cache: PASS-THRU mode ACTIVE.")
+             logger.info("Cache: Offline.")
 
     def _normalize(self, text: str) -> str:
         """

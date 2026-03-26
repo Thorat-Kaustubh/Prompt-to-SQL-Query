@@ -1,3 +1,5 @@
+"use client";
+
 import React from 'react';
 import { 
   BarChart, 
@@ -41,21 +43,23 @@ export const DataChart = ({ chart }: ChartProps) => {
   });
 
   const COLORS = ['#8B5CF6', '#D946EF', '#10B981', '#F59E0B', '#EF4444'];
-  const gridColor = isDark ? '#374151' : '#E5E7EB';
-  const textColor = isDark ? '#9CA3AF' : '#6B7280';
+  const gridColor = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
+  const textColor = isDark ? '#94A3B8' : '#64748B';
 
   const renderTooltip = (props: any) => {
     const { active, payload, label } = props;
     if (active && payload && payload.length) {
       return (
-        <div className="bg-background-secondary border border-border/60 p-4 rounded-xl shadow-2xl backdrop-blur-xl">
-          <p className="text-xs font-black uppercase tracking-widest text-text-secondary mb-2">{label}</p>
-          <div className="space-y-1.5">
+        <div className="glass p-4 rounded-2xl border-border/20 shadow-2xl backdrop-blur-2xl min-w-[160px]">
+          <p className="text-[10px] font-black uppercase tracking-[2px] text-text-secondary mb-3 border-b border-border/10 pb-2">{label}</p>
+          <div className="space-y-2">
             {payload.map((entry: any, i: number) => (
-              <div key={i} className="flex items-center space-x-3">
-                <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
-                <span className="text-sm font-bold text-text-primary capitalize">{entry.name}:</span>
-                <span className="text-sm font-black text-accent">{entry.value.toLocaleString()}</span>
+              <div key={i} className="flex items-center justify-between space-x-4">
+                <div className="flex items-center space-x-2">
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
+                    <span className="text-[11px] font-bold text-text-primary uppercase tracking-tight">{entry.name}</span>
+                </div>
+                <span className="text-[11px] font-black text-[var(--accent)] tabular-nums">{entry.value.toLocaleString()}</span>
               </div>
             ))}
           </div>
@@ -69,29 +73,31 @@ export const DataChart = ({ chart }: ChartProps) => {
     <ResponsiveContainer width="100%" height="100%">
       {chart.type === 'bar' ? (
         <BarChart data={data} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} strokeOpacity={0.4} />
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
           <XAxis 
             dataKey="name" 
             axisLine={false} 
             tickLine={false} 
-            tick={{ fill: textColor, fontSize: 11, fontWeight: 700 }}
+            tick={{ fill: textColor, fontSize: 10, fontWeight: 800 }}
             dy={10}
+            textAnchor="end"
+            interval={0}
           />
           <YAxis 
             axisLine={false} 
             tickLine={false} 
-            tick={{ fill: textColor, fontSize: 11, fontWeight: 700 }}
+            tick={{ fill: textColor, fontSize: 10, fontWeight: 800 }}
             tickFormatter={(value) => value >= 1000 ? `${(value / 1000).toFixed(0)}k` : value}
           />
           <Tooltip cursor={{ fill: 'var(--accent)', opacity: 0.05 }} content={renderTooltip} />
-          <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px' }} />
+          <Legend verticalAlign="top" align="right" iconType="circle" wrapperStyle={{ paddingBottom: '30px', fontSize: '9px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '2px' }} />
           {chart.series.map((s, i) => (
             <Bar 
               key={s.name} 
               dataKey={s.name} 
               fill={COLORS[i % COLORS.length]} 
-              radius={[6, 6, 0, 0]} 
-              barSize={Math.max(20, 120 / data.length)}
+              radius={[4, 4, 0, 0]} 
+              barSize={Math.max(16, 80 / data.length)}
             />
           ))}
         </BarChart>
@@ -101,44 +107,85 @@ export const DataChart = ({ chart }: ChartProps) => {
             data={data.map((d, i) => ({ name: d.name, value: d[chart.series[0].name] }))}
             cx="50%"
             cy="50%"
-            innerRadius="60%"
-            outerRadius="80%"
-            paddingAngle={5}
+            innerRadius="65%"
+            outerRadius="85%"
+            paddingAngle={8}
             dataKey="value"
+            animationBegin={0}
+            animationDuration={1500}
           >
             {data.map((_, index) => (
-              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke="rgba(0,0,0,0.1)" />
+              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke="rgba(0,0,0,0.1)" strokeWidth={2} />
             ))}
           </Pie>
           <Tooltip content={renderTooltip} />
-          <Legend iconType="circle" wrapperStyle={{ fontSize: '11px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px' }} />
+          <Legend verticalAlign="bottom" align="center" iconType="circle" wrapperStyle={{ paddingTop: '20px', fontSize: '9px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '2px' }} />
         </PieChart>
-      ) : (
-        <LineChart data={data} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} strokeOpacity={0.4} />
+      ) : chart.type === 'area' ? (
+        <AreaChart data={data} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+          <defs>
+            {chart.series.map((s, i) => (
+              <linearGradient key={`grad-${i}`} id={`color-${i}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={COLORS[i % COLORS.length]} stopOpacity={0.4}/>
+                <stop offset="95%" stopColor={COLORS[i % COLORS.length]} stopOpacity={0}/>
+              </linearGradient>
+            ))}
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
           <XAxis 
             dataKey="name" 
             axisLine={false} 
             tickLine={false} 
-            tick={{ fill: textColor, fontSize: 11, fontWeight: 700 }}
+            tick={{ fill: textColor, fontSize: 10, fontWeight: 800 }}
             dy={10}
           />
           <YAxis 
             axisLine={false} 
             tickLine={false} 
-            tick={{ fill: textColor, fontSize: 11, fontWeight: 700 }}
+            tick={{ fill: textColor, fontSize: 10, fontWeight: 800 }}
           />
           <Tooltip content={renderTooltip} />
-          <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px' }} />
+          <Legend verticalAlign="top" align="right" iconType="circle" wrapperStyle={{ paddingBottom: '30px', fontSize: '9px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '2px' }} />
+          {chart.series.map((s, i) => (
+            <Area 
+              key={s.name} 
+              type="monotone" 
+              dataKey={s.name} 
+              stroke={COLORS[i % COLORS.length]} 
+              fillOpacity={1} 
+              fill={`url(#color-${i})`} 
+              strokeWidth={3}
+              animationDuration={2000}
+            />
+          ))}
+        </AreaChart>
+      ) : (
+        <LineChart data={data} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
+          <XAxis 
+            dataKey="name" 
+            axisLine={false} 
+            tickLine={false} 
+            tick={{ fill: textColor, fontSize: 10, fontWeight: 800 }}
+            dy={10}
+          />
+          <YAxis 
+            axisLine={false} 
+            tickLine={false} 
+            tick={{ fill: textColor, fontSize: 10, fontWeight: 800 }}
+          />
+          <Tooltip content={renderTooltip} />
+          <Legend verticalAlign="top" align="right" iconType="circle" wrapperStyle={{ paddingBottom: '30px', fontSize: '9px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '2px' }} />
           {chart.series.map((s, i) => (
             <Line 
               key={s.name} 
               type="monotone" 
               dataKey={s.name} 
               stroke={COLORS[i % COLORS.length]} 
-              strokeWidth={3}
-              dot={{ r: 6, strokeWidth: 2, fill: isDark ? '#1F2937' : '#F9FAFB' }}
-              activeDot={{ r: 8, strokeWidth: 0 }}
+              strokeWidth={4}
+              dot={{ r: 4, strokeWidth: 2, fill: isDark ? '#05070A' : '#FFFFFF' }}
+              activeDot={{ r: 7, strokeWidth: 0 }}
+              animationDuration={2000}
             />
           ))}
         </LineChart>
@@ -146,3 +193,4 @@ export const DataChart = ({ chart }: ChartProps) => {
     </ResponsiveContainer>
   );
 };
+

@@ -147,7 +147,7 @@ const MessageBubble = ({ message }: { message: Message }) => {
           </div>
           
           {!isUser && message.data && (
-            <ResponseCard data={message.data} />
+            <ResponseCard data={message.data as any} />
           )}
         </div>
       </div>

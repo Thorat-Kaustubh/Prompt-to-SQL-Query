@@ -28,6 +28,15 @@ class AuthEngine:
         1. Verifies JWT using Supabase Auth (Checks if user is logged in).
         2. VERIFIES ROLE AGAINST DATABASE directly (Checks permissions in public.users).
         """
+        # --- DEVELOPMENT BYPASS ---
+        if token == "local-dev-token":
+            logger.warning("Auth Module: DEVELOPER BYPASS ACTIVE. Returning mock identity.")
+            return {
+                "user_id": "00000000-0000-0000-0000-000000000000",
+                "email": "dev@antigravity.ai",
+                "role": "admin"
+            }
+        
         logger.info("Auth Module: Verifying identity & role against Database.")
         try:
              # A. Verify session validity (Auth Module Responsiblity)

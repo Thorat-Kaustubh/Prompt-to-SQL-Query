@@ -22,9 +22,9 @@ class ShortTermMemory:
                 self.redis_client = redis.from_url(url, decode_responses=True)
                 # Test connection
                 self.redis_client.ping()
-                logger.info("Connected to Redis for Short-Term Memory.")
+                logger.info("Memory: Connected.")
             except Exception:
-                logger.info("Short-Term Memory: Redis not found. Using [In-Memory] session cache.")
+                logger.info("Memory: Service offline, using local cache.")
                 self.redis_client = None
 
     def add_interaction(self, user_id: str, interaction: Dict[str, Any]):

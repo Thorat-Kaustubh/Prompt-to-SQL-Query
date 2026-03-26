@@ -20,7 +20,7 @@ class LongTermMemory:
         else:
             try:
                 self.client: Client = create_client(url, key)
-                logger.info("Connected to Supabase for Long-Term Memory.")
+                logger.info("History: connected.")
             except Exception as e:
                 logger.error(f"Failed to connect to Supabase: {e}")
                 self.client = None

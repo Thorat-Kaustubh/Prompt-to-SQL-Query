@@ -1,5 +1,8 @@
+"use client";
+
 import React from 'react';
 import { cn } from '@/lib/utils';
+import { FileDown, Table as TableIcon } from 'lucide-react';
 
 interface DataTableProps {
   data: any[];
@@ -7,32 +10,40 @@ interface DataTableProps {
 
 export const DataTable = ({ data }: DataTableProps) => {
   if (!data || data.length === 0) return (
-    <div className="p-8 text-center text-text-secondary font-bold uppercase tracking-widest text-xs">No data available</div>
+    <div className="h-full flex flex-col items-center justify-center space-y-4 opacity-30">
+        <TableIcon className="w-12 h-12" />
+        <p className="text-[10px] font-black uppercase tracking-[4px]">No Data Available</p>
+    </div>
   );
 
   const columns = Object.keys(data[0]);
 
   return (
-    <div className="w-full h-full overflow-hidden flex flex-col bg-background-secondary shadow-2xl rounded-xl border border-border/20">
-      <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse min-w-full divide-y divide-border/20">
-          <thead className="bg-surface/50 border-b border-border/20 text-[10px] uppercase font-black text-text-secondary tracking-[2px]">
-            <tr>
+    <div className="w-full h-full flex flex-col glass rounded-2xl border-border/10 overflow-hidden group/table shadow-2xl">
+      <div className="flex-1 overflow-auto custom-scrollbar">
+        <table className="w-full text-left border-collapse min-w-full">
+          <thead>
+            <tr className="sticky top-0 z-20 bg-surface border-b border-border/10 backdrop-blur-xl">
               {columns.map((col) => (
-                <th key={col} className="px-6 py-4 font-black whitespace-nowrap">{col}</th>
+                <th key={col} className="px-8 py-5 text-[10px] uppercase font-black text-text-secondary tracking-[2px] whitespace-nowrap bg-surface/80">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-1 h-3 bg-[var(--accent)]/30 rounded-full" />
+                    <span>{col}</span>
+                  </div>
+                </th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-border/10">
+          <tbody className="divide-y divide-border/5">
             {data.map((row, i) => (
               <tr 
                 key={i} 
-                className="hover:bg-accent/5 transition-colors group cursor-default"
+                className="hover:bg-[var(--accent)]/5 transition-all duration-300 group cursor-default"
               >
                 {columns.map((col) => (
                   <td key={col} className={cn(
-                    "px-6 py-4 text-sm font-bold transition-all truncate max-w-[200px]",
-                    typeof row[col] === 'number' ? "text-accent font-black text-right" : "text-text-primary"
+                    "px-8 py-4 text-[13px] font-bold transition-all truncate max-w-[250px]",
+                    typeof row[col] === 'number' ? "text-[var(--accent)] font-medium tabular-nums" : "text-[var(--text-primary)]"
                   )}>
                     {typeof row[col] === 'number' 
                       ? row[col].toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })
@@ -46,17 +57,21 @@ export const DataTable = ({ data }: DataTableProps) => {
         </table>
       </div>
       
-      {/* Table Footer / Summary */}
-      <div className="px-6 py-3 bg-surface/20 flex items-center justify-between">
-         <span className="text-[10px] font-black uppercase text-text-secondary tracking-widest">
-           Showing {data.length} records
-         </span>
-         <div className="flex bg-background-secondary border border-border/40 rounded-lg p-0.5">
-           <button className="px-3 py-1 font-bold text-[10px] uppercase text-text-secondary hover:text-accent transition-colors">Export CSV</button>
-           <div className="w-[1px] h-3 bg-border/40 self-center" />
-           <button className="px-3 py-1 font-bold text-[10px] uppercase text-text-secondary hover:text-accent transition-colors">JSON</button>
+      {/* Table Action Bar */}
+      <div className="px-8 py-4 bg-surface/30 border-t border-border/10 flex items-center justify-between">
+         <div className="flex items-center space-x-4">
+           <span className="text-[9px] font-black uppercase text-text-secondary tracking-[2px]">
+             Collection Size: {data.length} Vectors
+           </span>
+         </div>
+         <div className="flex glass bg-background/40 border border-border/20 rounded-xl overflow-hidden">
+           <button className="px-4 py-2 flex items-center space-x-2 text-[9px] font-black uppercase tracking-[1px] text-text-secondary hover:bg-surface hover:text-[var(--accent)] transition-all">
+             <FileDown className="w-3 h-3" />
+             <span>Export Engine</span>
+           </button>
          </div>
       </div>
     </div>
   );
 };
+

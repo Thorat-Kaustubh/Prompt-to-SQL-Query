@@ -43,49 +43,76 @@ def json_serializer(record):
         
     return json.dumps(subset)
 
+import logging
+
+class InterceptHandler(logging.Handler):
+    """
+    SECURITY & OPS: Intercept standard logging to unify under loguru.
+    """
+    def emit(self, record):
+        try:
+            level = logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+
+        frame, depth = logging.currentframe(), 2
+        while frame and frame.f_code.co_filename == logging.__file__:
+            frame = frame.f_back
+            depth += 1
+
+        logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
+
 def setup_standard_logging(level="INFO", log_file="system_observability.log"):
-    # Remove default handler
+    # Clear any existing handlers
     logger.remove()
     
-    # Console JSON Output
-    logger.add(
-        sys.stdout, 
-        format=lambda r: "{message}", 
-        level=level, 
-        serialize=True, 
-        enqueue=True
+    # 🖥️ CONSOLE: Human-Readable & Colored
+    console_format = (
+        "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+        "<level>{level: <8}</level> | "
+        "<cyan>{extra[request_id]}</cyan> - "
+        "<b>{message}</b>"
     )
     
-    # File JSON Output
+    def filter_requests(record):
+        if "request_id" not in record["extra"]:
+            record["extra"]["request_id"] = get_request_id()
+        return True
+
     logger.add(
-        log_file, 
-        format=lambda r: "{message}", 
-        level=level, 
-        serialize=True, 
+        sys.stdout,
+        format=console_format,
+        level=level,
+        colorize=True,
+        enqueue=True,
+        filter=filter_requests
+    )
+    
+    # 💾 FILE: Structured JSON
+    logger.add(
+        log_file,
+        format="{message}",
+        level=level,
+        serialize=True,
         rotation="100 MB",
         enqueue=True
     )
     
-    # Intercept loguru's native serialization with our custom subset if needed
-    # But loguru's `serialize=True` is already quite good. 
-    # For THE exact format requested by the user, we will create a dedicated "StructuredLogger" helper.
+    # 🔗 INTERCEPT: Route all Uvicorn/App logs into Loguru
+    logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
+    for _name in ("uvicorn", "uvicorn.error", "uvicorn.access", "fastapi"):
+        _logger = logging.getLogger(_name)
+        _logger.handlers = [InterceptHandler()]
+        _logger.propagate = False
+
+    logger.info("\n" + "="*50 + "\n🚀 AI ASSISTANT BACKEND: STANDBY\n" + "="*50)
+    logger.info("Logging: Unified & Hardened (Uvicorn Intercept Active).")
 
 class StructuredLogger:
     @staticmethod
     def log_event(event_type: str, data: Dict[str, Any]):
         """
-        Final Standardized Format as per PRD:
-        {
-          "timestamp": "...",
-          "user_id": "...",
-          "query": "...",
-          "sql": "...",
-          "execution_time_ms": "...",
-          "cache_hit": true/false,
-          "status": "SUCCESS | FAILED",
-          "error": null | "error message",
-          "event_type": "..."
-        }
+        Record a structured event for audit trail.
         """
         payload = {
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -94,8 +121,8 @@ class StructuredLogger:
             **redact_sensitive(data)
         }
         
-        # Use loguru to record it
-        logger.bind(type="structured", **payload).info(f"EVENT_{event_type}")
+        # We bind the structured data to the record
+        logger.bind(**payload).info(f"📊 EVENT_{event_type}: {json.dumps(redact_sensitive(data))}")
 
 # Initialize logging on import
 setup_standard_logging()
